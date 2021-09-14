@@ -68,15 +68,11 @@ class Node(val index: Int) extends Actor {
 				relabel
 				edgesLeft = edge
 			}
-			//if (e > 0 && !sink){
-				var a = edgesLeft.head
-				edgesLeft = edgesLeft.tail
+			var a = edgesLeft.head
+			edgesLeft = edgesLeft.tail
 
-				var pf = if (a.u == self) e else -e
-				other(a,self) ! Push(a, h, pf)
-				//sentPushes += 1
-				//e -= pushable
-			//}
+			var pf = if (a.u == self) e else -e
+			other(a,self) ! Push(a, h, pf)
 		}
 	}
 
@@ -89,18 +85,21 @@ class Node(val index: Int) extends Actor {
 				a.f += pushable
 				e += pushable
 				sender ! Ack(pushable)
+				if (sink || source) {
+					control ! Bye(pushable)
+				}
 			}
 			else if (pf < 0){
 				var subtractable = min(Math.abs(pf), a.f)
 				a.f -= subtractable
 				e += subtractable
 				sender ! Ack(subtractable)
+				if (sink || source) {
+					control ! Bye(subtractable)
+				}
 			}
 
-			if (sink || source) {
-				control ! Bye(e)
-			}
-			else {
+			if(e > 0){
 				discharge
 			}
 		}
@@ -120,6 +119,7 @@ class Node(val index: Int) extends Actor {
 		//enter("ack")
 		//sentPushes -= 1
 		e -= r
+		//assert(e >= 0 || source)
 		discharge
 		//exit("ack")
 	}
@@ -127,6 +127,7 @@ class Node(val index: Int) extends Actor {
 	case Hello => {
 		for(a <- edge){
 			other(a,self) ! Push(a,h,a.c)
+			control ! Bye(-a.c)
 		}
 	}
 
@@ -190,7 +191,6 @@ class Preflow extends Actor
 
 		node(s) ! Source(n)
 		node(t) ! Sink
-		node(s) ! Print
 		node(s) ! Hello
 
 		//node(t) ! Excess	/* ask sink for its excess preflow (which certainly still is zero). */
