@@ -14,8 +14,11 @@ case class Debug(debug: Boolean)
 case class Control(control:ActorRef)
 case class Source(n: Int)
 case class Push(a: Edge, h: Int, pf: Int)
+case class Ack(r: Int)
+case class Bye(e: Int)
 
 case object Print
+case object Stop
 case object Start
 case object Excess
 case object Maxflow
@@ -34,8 +37,10 @@ class Node(val index: Int) extends Actor {
 	var	source:Boolean	= false		/* true if we are the source.					*/
 	var	sink:Boolean	= false		/* true if we are the sink.					*/
 	var	edge: List[Edge] = Nil		/* adjacency list with edge objects shared with other nodes.	*/
-	var	debug = false			/* to enable printing.						*/
+	var	debug = true			/* to enable printing.						*/
 	var edgesLeft:List[Edge] = Nil
+	var stop = false
+	//var sentPushes = 0
 
 	def min(a:Int, b:Int) : Int = { if (a < b) a else b }
 
@@ -58,34 +63,74 @@ class Node(val index: Int) extends Actor {
 	}
 
 	def discharge: Unit = {
-		if (edgesLeft.isEmpty){
-			relabel
-			edgesLeft = edges
-		}
+		if(!stop && e > 0 && !sink && !source){
+			if (edgesLeft.isEmpty){
+				relabel
+				edgesLeft = edge
+			}
+			//if (e > 0 && !sink){
+				var a = edgesLeft.head
+				edgesLeft = edgesLeft.tail
 
-		if (e >= 0){
-			a = edgesLeft.head
-			edgesLeft = edgesLeft.tail
-
-			var pushable = min(e, a.c - a.f)
-			other(a,self) ! Push(a, h, pushable)
-
-			e -= pushable
+				var pf = if (a.u == self) e else -e
+				other(a,self) ! Push(a, h, pf)
+				//sentPushes += 1
+				//e -= pushable
+			//}
 		}
 	}
 
 	def receive = {
 
 	case Push(a: Edge, h: Int, pf: Int) => {
-		if(h < this.h){
+		if(h > this.h){
+			if (pf > 0){
+				var pushable = min(pf, a.c - a.f);
+				a.f += pushable
+				e += pushable
+				sender ! Ack(pushable)
+			}
+			else if (pf < 0){
+				var subtractable = min(Math.abs(pf), a.f)
+				a.f -= subtractable
+				e += subtractable
+				sender ! Ack(subtractable)
+			}
+
+			if (sink || source) {
+				control ! Bye(e)
+			}
+			else {
+				discharge
+			}
+		}
+		else {
 			sender ! Nack
-		} else {
-			a.f += pf
-			e += pf
-			sender ! Ack
-			discharge
 		}
 	}
+
+	case Nack => {
+		//enter("nack")
+		//sentPushes -= 1
+		discharge
+		//exit("nack")
+	}
+
+	case Ack(r: Int) => {
+		//enter("ack")
+		//sentPushes -= 1
+		e -= r
+		discharge
+		//exit("ack")
+	}
+
+	case Hello => {
+		for(a <- edge){
+			other(a,self) ! Push(a,h,a.c)
+		}
+	}
+
+	case Stop => { stop = true}
 
 	case Debug(debug: Boolean)	=> this.debug = debug
 
@@ -121,6 +166,7 @@ class Preflow extends Actor
 	var	edge:Array[Edge]	= null	/* edges in the graph.						*/
 	var	node:Array[ActorRef]	= null	/* vertices in the graph.					*/
 	var	ret:ActorRef 		= null	/* Actor to send result to.					*/
+	var total = 0
 
 	def receive = {
 
@@ -142,8 +188,22 @@ class Preflow extends Actor
 	case Maxflow => {
 		ret = sender
 
-		node(t) ! Excess	/* ask sink for its excess preflow (which certainly still is zero). */
+		node(s) ! Source(n)
+		node(t) ! Sink
+		node(s) ! Print
+		node(s) ! Hello
+
+		//node(t) ! Excess	/* ask sink for its excess preflow (which certainly still is zero). */
 	}
+
+	case Bye(e: Int) => {
+			total += e
+			if(total == 0) {
+				node(t) ! Excess
+				for (n <- node) n ! Stop
+			}
+	}
+
 	}
 }
 
