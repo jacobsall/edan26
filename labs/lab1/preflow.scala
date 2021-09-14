@@ -40,7 +40,7 @@ class Node(val index: Int) extends Actor {
 	var	debug = true			/* to enable printing.						*/
 	var edgesLeft:List[Edge] = Nil
 	var stop = false
-	//var sentPushes = 0
+	var isPushing = false
 
 	def min(a:Int, b:Int) : Int = { if (a < b) a else b }
 
@@ -63,7 +63,7 @@ class Node(val index: Int) extends Actor {
 	}
 
 	def discharge: Unit = {
-		if(!stop && e > 0 && !sink && !source){
+		if(!stop && e > 0 && !sink && !source && !isPushing){
 			if (edgesLeft.isEmpty){
 				relabel
 				edgesLeft = edge
@@ -73,6 +73,7 @@ class Node(val index: Int) extends Actor {
 
 			var pf = if (a.u == self) e else -e
 			other(a,self) ! Push(a, h, pf)
+			isPushing = true
 		}
 	}
 
@@ -99,9 +100,7 @@ class Node(val index: Int) extends Actor {
 				}
 			}
 
-			if(e > 0){
-				discharge
-			}
+			discharge
 		}
 		else {
 			sender ! Nack
@@ -111,6 +110,7 @@ class Node(val index: Int) extends Actor {
 	case Nack => {
 		//enter("nack")
 		//sentPushes -= 1
+		isPushing = false
 		discharge
 		//exit("nack")
 	}
@@ -118,8 +118,8 @@ class Node(val index: Int) extends Actor {
 	case Ack(r: Int) => {
 		//enter("ack")
 		//sentPushes -= 1
+		isPushing = false
 		e -= r
-		//assert(e >= 0 || source)
 		discharge
 		//exit("ack")
 	}
