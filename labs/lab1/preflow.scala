@@ -26,7 +26,7 @@ case object Sink
 case object Hello
 case object Nack
 
-class Edge(var u: ActorRef, var v: ActorRef, var c: Int) {
+class Edge(var u: ActorRef, var v: ActorRef, var c: Int, var idU: Int, var idV: Int) {
 	var	f = 0
 }
 
@@ -37,9 +37,8 @@ class Node(val index: Int) extends Actor {
 	var	source:Boolean	= false		/* true if we are the source.					*/
 	var	sink:Boolean	= false		/* true if we are the sink.					*/
 	var	edge: List[Edge] = Nil		/* adjacency list with edge objects shared with other nodes.	*/
-	var	debug = true			/* to enable printing.						*/
+	var	debug = false			/* to enable printing.						*/
 	var edgesLeft:List[Edge] = Nil
-	var stop = false
 	var isPushing = false
 
 	def min(a:Int, b:Int) : Int = { if (a < b) a else b }
@@ -48,23 +47,25 @@ class Node(val index: Int) extends Actor {
 
 	def other(a:Edge, u:ActorRef) : ActorRef = { if (u == a.u) a.v else a.u }
 
-	def status: Unit = { if (debug) println(id + " e = " + e + ", h = " + h) }
+	def status: Unit = { if (true) println(id + " e = " + e + ", h = " + h) }
 
 	def enter(func: String): Unit = { if (debug) { println(id + " enters " + func); status } }
 	def exit(func: String): Unit = { if (debug) { println(id + " exits " + func); status } }
 
+	def dbPrint(func: String): Unit = {if (true) { println(id + func); } }
+
+
 	def relabel : Unit = {
-
 		enter("relabel")
-
 		h += 1
-
+		//dbPrint(" increasing height to " + h);
 		exit("relabel")
 	}
 
 	def discharge: Unit = {
-		if(!stop && e > 0 && !sink && !source && !isPushing){
-			if (edgesLeft.isEmpty){
+		//enter("disharge")
+		if(e > 0 && !sink && !source && !isPushing){
+			if (edgesLeft == Nil){
 				relabel
 				edgesLeft = edge
 			}
@@ -72,21 +73,29 @@ class Node(val index: Int) extends Actor {
 			edgesLeft = edgesLeft.tail
 
 			var pf = if (a.u == self) e else -e
+			var otherId = if(a.u == self) a.idV else a.idU
 			other(a,self) ! Push(a, h, pf)
 			isPushing = true
+			//dbPrint(" trying to push " + pf + " to @" + otherId)
 		}
+		//exit("disharge")
 	}
 
 	def receive = {
 
 	case Push(a: Edge, h: Int, pf: Int) => {
 		if(h > this.h){
+			if(source ) println("hfbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+			var otherId = if(a.u == self) a.idV else a.idU
 			if (pf > 0){
 				var pushable = min(pf, a.c - a.f);
 				a.f += pushable
 				e += pushable
+
+				//dbPrint(" has accepted " + pushable + " from @" + otherId)
 				sender ! Ack(pushable)
-				if (sink || source) {
+				if ((sink || source )&& pushable > 0) {
+					//dbPrint(" has " + e + " and byebyes " + pushable)
 					control ! Bye(pushable)
 				}
 			}
@@ -94,11 +103,16 @@ class Node(val index: Int) extends Actor {
 				var subtractable = min(Math.abs(pf), a.f)
 				a.f -= subtractable
 				e += subtractable
+				//dbPrint(" has accepted " + subtractable + " from @" + otherId)
 				sender ! Ack(subtractable)
-				if (sink || source) {
+				if ((sink || source) && subtractable > 0) {
+					//dbPrint(" has " + e + " and byebyes " + subtractable)
 					control ! Bye(subtractable)
 				}
 			}
+
+			//if(sink) dbPrint(" its me")
+			if(!source) assert(e >= 0)
 
 			discharge
 		}
@@ -108,30 +122,28 @@ class Node(val index: Int) extends Actor {
 	}
 
 	case Nack => {
-		//enter("nack")
-		//sentPushes -= 1
 		isPushing = false
+		if(!source) assert(e > 0)
 		discharge
-		//exit("nack")
 	}
 
 	case Ack(r: Int) => {
-		//enter("ack")
-		//sentPushes -= 1
 		isPushing = false
 		e -= r
+		//dbPrint(" and now " + e + " left")
+		if(!source) assert(e >= 0)
+		if(source && r>0) control ! Bye(-r)
 		discharge
-		//exit("ack")
 	}
 
 	case Hello => {
+		//control ! Bye(10932)
 		for(a <- edge){
-			other(a,self) ! Push(a,h,a.c)
-			control ! Bye(-a.c)
+			var pf = if (a.u == self) a.c else -a.c
+			other(a,self) ! Push(a,h,pf)
+			//control ! Bye(-a.c)
 		}
 	}
-
-	case Stop => { stop = true}
 
 	case Debug(debug: Boolean)	=> this.debug = debug
 
@@ -198,9 +210,10 @@ class Preflow extends Actor
 
 	case Bye(e: Int) => {
 			total += e
+			println(total)
 			if(total == 0) {
+				for (n<-node) n ! Print
 				node(t) ! Excess
-				for (n <- node) n ! Stop
 			}
 	}
 
@@ -208,7 +221,7 @@ class Preflow extends Actor
 }
 
 object main extends App {
-	implicit val t = Timeout(4 seconds);
+	implicit val t = Timeout(30 seconds);
 
 	val	begin = System.currentTimeMillis()
 	val system = ActorSystem("Main")
@@ -241,7 +254,7 @@ object main extends App {
 		val v = s.nextInt
 		val c = s.nextInt
 
-		edge(i) = new Edge(node(u), node(v), c)
+		edge(i) = new Edge(node(u), node(v), c, u, v)
 
 		node(u) ! edge(i)
 		node(v) ! edge(i)
@@ -255,7 +268,7 @@ object main extends App {
 
 	println("f = " + f)
 
-	system.stop(control);
+	system.stop(control)
 	system.terminate()
 
 	val	end = System.currentTimeMillis()
