@@ -85,7 +85,6 @@ class Node(val index: Int) extends Actor {
 
 	case Push(a: Edge, h: Int, pf: Int) => {
 		if(h > this.h){
-			if(source ) println("hfbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 			var otherId = if(a.u == self) a.idV else a.idU
 			if (pf > 0){
 				var pushable = min(pf, a.c - a.f);
@@ -100,7 +99,7 @@ class Node(val index: Int) extends Actor {
 				}
 			}
 			else if (pf < 0){
-				var subtractable = min(Math.abs(pf), a.f)
+				var subtractable = min(-pf, a.c + a.f)
 				a.f -= subtractable
 				e += subtractable
 				//dbPrint(" has accepted " + subtractable + " from @" + otherId)
@@ -132,17 +131,17 @@ class Node(val index: Int) extends Actor {
 		e -= r
 		//dbPrint(" and now " + e + " left")
 		if(!source) assert(e >= 0)
-		if(source && r>0) control ! Bye(-r)
+		//if(source && r>0) control ! Bye(-r) // istället för att köra det nere i hello, programmet avslutar med fel svar
 		discharge
 	}
 
 	case Hello => {
-		//control ! Bye(10932)
 		for(a <- edge){
 			var pf = if (a.u == self) a.c else -a.c
 			other(a,self) ! Push(a,h,pf)
-			//control ! Bye(-a.c)
+			control ! Bye(-a.c)
 		}
+		control ! Hello
 	}
 
 	case Debug(debug: Boolean)	=> this.debug = debug
@@ -180,6 +179,7 @@ class Preflow extends Actor
 	var	node:Array[ActorRef]	= null	/* vertices in the graph.					*/
 	var	ret:ActorRef 		= null	/* Actor to send result to.					*/
 	var total = 0
+	var initialized = false
 
 	def receive = {
 
@@ -205,16 +205,18 @@ class Preflow extends Actor
 		node(t) ! Sink
 		node(s) ! Hello
 
-		//node(t) ! Excess	/* ask sink for its excess preflow (which certainly still is zero). */
 	}
 
 	case Bye(e: Int) => {
 			total += e
 			println(total)
-			if(total == 0) {
-				for (n<-node) n ! Print
+			if(initialized && total == 0) {
 				node(t) ! Excess
 			}
+	}
+
+	case Hello => {
+		initialized = true
 	}
 
 	}
