@@ -3,6 +3,7 @@ import java.util.Iterator;
 import java.util.ListIterator;
 import java.util.LinkedList;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import java.io.*;
 
@@ -12,17 +13,21 @@ class Graph {
 	int	t;
 	int	n;
 	int	m;
+  int nbr_threads;
+  AtomicInteger working;
 	Node	excess;		// list of nodes with excess preflow
 	Node	node[];
 	Edge	edge[];
 	ReentrantLock mutex;
 
-	Graph(Node node[], Edge edge[])
+	Graph(Node node[], Edge edge[], int nbr_threads)
 	{
+    working = new AtomicInteger(0);
 		this.node	= node;
 		this.n		= node.length;
 		this.edge	= edge;
 		this.m		= edge.length;
+    this.nbr_threads = nbr_threads;
 		mutex = new ReentrantLock();
 	}
 
@@ -89,7 +94,6 @@ class Graph {
 		Edge			a;
 		Node			u;
 		Node			v;
-		int number_of_threads = 2;
 
 		this.s = s;
 		this.t = t;
@@ -105,17 +109,17 @@ class Graph {
 		}
 
 		//tråda här
-		Task[] threads = new Task[number_of_threads];
+		Task[] threads = new Task[nbr_threads];
 
-		for (int i = 0; i < number_of_threads; i++){
+		for (int i = 0; i < nbr_threads; i++){
 			threads[i] = new Task(this);
 		}
 
-		for (int i = 0; i < number_of_threads; i++){
+		for (int i = 0; i < nbr_threads; i++){
 			threads[i].start();
 		}
 
-		for (int i = 0; i < number_of_threads; i++) {
+		for (int i = 0; i < nbr_threads; i++) {
 			threads[i].join();
 		}
 
@@ -139,59 +143,71 @@ class Task extends Thread{
 		Edge			a;
 		Node			u;
 		Node			v;
+    boolean i_am_working = true;
+    g.working.getAndIncrement();
 
 		Boolean ya = true;
 		//System.out.println(g.excess);
+    while(g.working.get() != 0){
 
-		while ((u = g.leave_excess()) != null) {
-			// g.mutex.lock();
-			// u = excess;
-			if(ya) System.out.println(u);
-			ya = false;
-			v = null;
-			a = null;
-			// excess = u.next;
-			// g.mutex.unlock();
+		  while ((u = g.leave_excess()) != null) {
+		  	// g.mutex.lock();
+		  	// u = excess;
+        if(!i_am_working){
+          i_am_working = true;
+          g.working.getAndIncrement();
+        }
+		  	if(ya) System.out.println(u);
+		  	ya = false;
+		  	v = null;
+		  	a = null;
+		  	// excess = u.next;
+		  	// g.mutex.unlock();
 
-			iter = u.adj.listIterator();
-			while (iter.hasNext()) {
-				a = iter.next();
+		  	iter = u.adj.listIterator();
+		  	while (iter.hasNext()) {
+		  		a = iter.next();
 
-				if (u == a.u){
-					v = a.v;
-					b = 1;
-				}else {
-					v = a.u;
-					b = -1;
-				}
+		  		if (u == a.u){
+		  			v = a.v;
+		  			b = 1;
+		  		}else {
+		  			v = a.u;
+		  			b = -1;
+		  		}
 
-				if(u.i < v.i){
-					u.mutex.lock();
-					v.mutex.lock();
-				} else {
-					v.mutex.lock();
-					u.mutex.lock();
-				}
+		  		if(u.i < v.i){
+		  			u.mutex.lock();
+		  			v.mutex.lock();
+		  		} else {
+		  			v.mutex.lock();
+		  			u.mutex.lock();
+		  		}
 
-				if (u.h > v.h && b*a.f < a.c){
-					break;
-				}
-				else {
-					u.mutex.unlock();
-					v.mutex.unlock();
-					v = null;
-				}
-			}
+		  		if (u.h > v.h && b*a.f < a.c){
+		  			break;
+		  		}
+		  		else {
+		  			u.mutex.unlock();
+		  			v.mutex.unlock();
+		  			v = null;
+		  		}
+		  	}
 
-			if (v != null){
-				g.push(u, v, a);
-				u.mutex.unlock();
-				v.mutex.unlock();
-			}
-			else {
-				g.relabel(u);
-			}
-		}
+		  	if (v != null){
+		  		g.push(u, v, a);
+		  		u.mutex.unlock();
+		  		v.mutex.unlock();
+		  	}
+		  	else {
+		  		g.relabel(u);
+		  	}
+		  }
+      
+      if(i_am_working) g.working.getAndDecrement();
+      i_am_working = false;
+
+    }
 		if(ya) System.out.println("ya");
 		System.out.println("job done ");
 	}
@@ -250,6 +266,7 @@ class Preflow {
 		s.nextInt();
 		Node[] node = new Node[n];
 		Edge[] edge = new Edge[m];
+    int nbr_threads = 8;
 
 		for (i = 0; i < n; i += 1)
 			node[i] = new Node(i);
@@ -263,7 +280,7 @@ class Preflow {
 			node[v].adj.addLast(edge[i]);
 		}
 
-		g = new Graph(node, edge);
+		g = new Graph(node, edge, nbr_threads);
 		f = g.preflow(0, n-1);
 		double	end = System.currentTimeMillis();
 		System.out.println("t = " + (end - begin) / 1000.0 + " s");
