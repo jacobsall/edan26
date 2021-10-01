@@ -101,6 +101,7 @@ struct graph_t {
 	node_t*		t;	/* sink.			*/
 	node_t*		excess;	/* nodes with e > 0 except s,t.	*/
   pthread_mutex_t mutex;  /* graph mutex lock */
+  int working;
   
 };
 
@@ -318,6 +319,8 @@ static graph_t* new_graph(FILE* in, int n, int m)
 
 	g->n = n;
 	g->m = m;
+
+  g->working = 0;
 	
 	g->v = xcalloc(n, sizeof(node_t));
 	g->e = xcalloc(m, sizeof(edge_t));
@@ -427,7 +430,9 @@ static void push(graph_t* g, node_t* u, node_t* v, edge_t* e)
 
 static void relabel(graph_t* g, node_t* u)
 {
+  pthread_mutex_lock(&u->mutex);
 	u->h += 1;
+  pthread_mutex_unlock(&u->mutex);
 
 	pr("relabel %d now h = %d\n", id(g, u), u->h);
 
@@ -451,72 +456,96 @@ static void* task(void* arg){
 	edge_t*		e;
 	list_t*		p;
 	int		b;
+  int i_am_working = 1;
+  pthread_mutex_lock(&g->mutex);
+  g->working++;
+  pthread_mutex_unlock(&g->mutex);
 
-	s = g->s;
-	s->h = g->n;
-
-	p = s->edge;
 	/* then loop until only s and/or t have excess preflow. */
+  //while (g->working != 0){
+  work:
 
-	while ((u = leave_excess(g)) != NULL) {
+	  while ((u = leave_excess(g)) != NULL) {
 
-		/* u is any node with excess preflow. */
+	  	/* u is any node with excess preflow. */
 
-		pr("selected u = %d with ", id(g, u));
-		pr("h = %d and e = %d\n", u->h, u->e);
-
-		/* if we can push we must push and only if we could
-		 * not push anything, we are allowed to relabel.
-		 *
-		 * we can push to multiple nodes if we wish but
-		 * here we just push once for simplicity.
-		 *
-		 */
-
-		v = NULL;
-		p = u->edge;
-
-		while (p != NULL) {
-			e = p->edge;
-			p = p->next;
-
-			if (u == e->u) {
-				v = e->v;
-				b = 1;
-			} else {
-				v = e->u;
-				b = -1;
-			}
-
-      if(u < v){
-        pthread_mutex_lock(&u->mutex);
-        pthread_mutex_lock(&v->mutex);
-      } else {
-        pthread_mutex_lock(&v->mutex);
-        pthread_mutex_lock(&u->mutex);
+      if(!i_am_working){
+        i_am_working = 1;
+        pthread_mutex_lock(&g->mutex);
+        g->working++;
+        pthread_mutex_unlock(&g->mutex);
+        
       }
 
+	  	pr("selected u = %d with ", id(g, u));
+	  	pr("h = %d and e = %d\n", u->h, u->e);
 
-			if (u->h > v->h && b * e->f < e->c){
-				break;
-      }
-			else{
+	  	/* if we can push we must push and only if we could
+	  	 * not push anything, we are allowed to relabel.
+	  	 *
+	  	 * we can push to multiple nodes if we wish but
+	  	 * here we just push once for simplicity.
+	  	 *
+	  	 */
+
+	  	v = NULL;
+	  	p = u->edge;
+
+	  	while (p != NULL) {
+	  		e = p->edge;
+	  		p = p->next;
+
+	  		if (u == e->u) {
+	  			v = e->v;
+	  			b = 1;
+	  		} else {
+	  			v = e->u;
+	  			b = -1;
+	  		}
+
+        if(u < v){
+          pthread_mutex_lock(&u->mutex);
+          pthread_mutex_lock(&v->mutex);
+        } else {
+          pthread_mutex_lock(&v->mutex);
+          pthread_mutex_lock(&u->mutex);
+        }
+
+
+	  		if (u->h > v->h && b * e->f < e->c){
+	  			break;
+        }
+	  		else{
+          pthread_mutex_unlock(&u->mutex);
+          pthread_mutex_unlock(&v->mutex);
+	  			v = NULL;
+        }
+	  	}
+
+	  	if (v != NULL){
+	  		push(g, u, v, e);
         pthread_mutex_unlock(&u->mutex);
         pthread_mutex_unlock(&v->mutex);
-				v = NULL;
+	  	} else{
+	  		relabel(g, u);
       }
-		}
-
-		if (v != NULL){
-			push(g, u, v, e);
-      pthread_mutex_unlock(&u->mutex);
-      pthread_mutex_unlock(&v->mutex);
-		} else{
-			relabel(g, u);
-    }
-	}
+	  }
+  if(i_am_working){
+    pthread_mutex_lock(&g->mutex);
+    g->working--;
+    pthread_mutex_unlock(&g->mutex);
+  }
+  i_am_working = 0;
   
-  pr("Thread done");
+  pthread_mutex_lock(&g->mutex);
+  if(g->working != 0){
+    pthread_mutex_unlock(&g->mutex);
+    goto work;
+  }
+  pthread_mutex_unlock(&g->mutex);
+  //}
+  
+  fprintf(stderr, "Thread done\n");
   return 0;
 }
 	
@@ -538,7 +567,8 @@ static int preflow(graph_t* g, int number_of_threads)
 	/* start by pushing as much as possible (limited by
 	 * the edge capacity) from the source to its neighbors.
 	 *
-	 */
+	 
+*/
 
 	while (p != NULL) {
 		e = p->edge;
@@ -549,7 +579,6 @@ static int preflow(graph_t* g, int number_of_threads)
 	}
 
   myargs arg = {g};
-	
   for (int i = 0; i < number_of_threads; i += 1){
     pthread_create(&threads[i], NULL, task, &arg);
   }
