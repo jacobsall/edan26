@@ -6,8 +6,8 @@
 #include <string.h>
 #include <pthread.h>
 
-#define PRINT		1	/* enable/disable prints. */
-#define SIZE    1000ULL
+#define PRINT		0	/* enable/disable prints. */
+#define SIZE    100ULL
 
 #if PRINT
 #define pr(...)		do { fprintf(stderr, __VA_ARGS__); } while (0)
@@ -139,7 +139,6 @@ static void* xcalloc(size_t n, size_t s)
 
 	p = xmalloc(n * s);
 
-	/* memset sets everything (in this case) to 0. */
 	memset(p, 0, n * s);
 
 
@@ -236,24 +235,16 @@ static void push(graph_t* g, node_t* u, node_t* v, edge_t* e, int d)
 	u->e -= d;
 	v->e += d;
 
-	/* the following are always true. */
-
 	assert(d >= 0);
 	assert(u->e >= 0);
 	assert(abs(e->f) <= e->c);
 
 	if (u->e > 0) {
 
-		/* still some remaining so let u push more. */
 		enter_excess(g, u);
 	}
 
 	if (v->e == d) {
-
-		/* since v has d excess now it had zero before and
-		 * can now push.
-		 *
-		 */
 
 		enter_excess(g, v);
 	}
@@ -261,9 +252,12 @@ static void push(graph_t* g, node_t* u, node_t* v, edge_t* e, int d)
 
 static void relabel(graph_t* g, node_t* u)
 {
-
+  pr("\nwhat is u?");
+  if(u == NULL){
+    pr("\nu is ded\n");
+  }
 	u->h += 1;
-
+  pr("fefefe");
 	pr("relabel %d now h = %d\n", id(g, u), u->h);
 
 	enter_excess(g, u);
@@ -278,10 +272,10 @@ static node_t* other(node_t* u, edge_t* e)
 }
 
 static void* task_1(void* arg){
-
+  pr("hehehe");
   myargs *args = arg;
-
-  graph_t* g = ((myargs*)arg)->g;
+  pr("BLELELE\n");
+  graph_t* g = args->g;
 	node_t*		s;
 	node_t*		u;
 	node_t*		v;
@@ -289,7 +283,6 @@ static void* task_1(void* arg){
 	list_t*		p;
   int   d;
 	int		b;
-  int i_am_working = 1;
   instruct* current_instruction;
 
     // Should wait on the barrier here?
@@ -300,8 +293,8 @@ static void* task_1(void* arg){
 
 	  while (args->count > 0) {
 
-      u = args->nodes[args->count];
-
+      u = args->nodes[args->count-1];
+      args->nodes[args->count] = NULL;
 
 	  	v = NULL;
 	  	p = u->edge;
@@ -336,7 +329,7 @@ static void* task_1(void* arg){
       		e->f -= d;
       	}
 
-        current_instruction = &(args->instructions[args->count]);
+        current_instruction = &(args->instructions[args->count-1]);
         current_instruction->u = u;
         current_instruction->v = v;
         current_instruction->edge = e;
@@ -345,8 +338,7 @@ static void* task_1(void* arg){
 
 	  	} else{
 	  		//relabel
-
-        current_instruction = &(args->instructions[args->count]);
+        current_instruction = &(args->instructions[args->count-1]);
         current_instruction->u = u;
         current_instruction->isPush = 0;
       }
@@ -357,7 +349,7 @@ static void* task_1(void* arg){
   pthread_barrier_wait(args->barrier);
   pthread_barrier_wait(args->barrier);
 
-  if(g->working != 0){
+  if(g->working == 1){
     goto work;
   }
 
@@ -367,19 +359,24 @@ static void* task_1(void* arg){
 
 static void* task_2(graph_t* g, myargs* arg, int number_of_threads){
   instruct* curr_instruct;
-
+  pr("task2\n");
   for (int i = 0; i < number_of_threads; i++) {
-
+    pr("hubba");
     for (int j = 0; j < arg[i].nbrNodes; j++) {
       curr_instruct = &(arg[i].instructions[j]);
-
+      pr("bubba\n");
       if (curr_instruct->isPush == 1) {
+        pr("push?");
         push(g,curr_instruct->u,curr_instruct->v,curr_instruct->edge,curr_instruct->flow);
+        pr("push!");
       }
       else {
+        pr("relabel?");
         relabel(g,curr_instruct->u);
+        pr("relabel!");
       }
     }
+    pr("\n");
   }
 }
 
@@ -387,13 +384,21 @@ static void giveNodes(graph_t* g, myargs* arg, int number_of_threads)
 {
   node_t* u;
   int i = 0;
-
+  pr("gibing\n");
+  for (int i = 0; i < number_of_threads; i++) {
+    pr("zero");
+    arg[i].nbrNodes = 0;
+  }
+  pr("\ntime to duel\n");
   while ((u = leave_excess(g)) != NULL){
+    pr("node brr %d\t", arg[i].count);
     arg[i].nodes[arg[i].count] = u;
+    pr("brr again\t");
     arg[i].count += 1;
+    pr("brr again\t");
     arg[i].nbrNodes += 1;
-
-    if(i < number_of_threads){
+    pr("brr again\n");
+    if(i < number_of_threads-1){
       i++;
     } else{
       i = 0;
@@ -416,6 +421,8 @@ static int preflow(graph_t* g, int number_of_threads)
 
 	p = s->edge;
 
+  g->working = 1;
+
 	while (p != NULL) {
 		e = p->edge;
 		p = p->next;
@@ -424,6 +431,9 @@ static int preflow(graph_t* g, int number_of_threads)
 		push(g, s, other(s, e), e, e->c);
 	}
   pr("hello \n");
+  if(g->excess == NULL){
+    pr("hwhwhwhw111111\n");
+  }
   // create barrier here and start it?
   pthread_barrier_t barrier;
   pthread_barrier_init(&barrier,NULL,number_of_threads+1);
@@ -436,9 +446,13 @@ static int preflow(graph_t* g, int number_of_threads)
     arg[i].count = 0;
     arg[i].nbrNodes = 0;
   }
-    pr("hello again\n");
+  pr("hello again2\n");
 
   giveNodes(g,arg, number_of_threads);
+  pr("hello again3\n");
+  if(g->excess == NULL){
+    pr("hwhwhwhw212222");
+  }
 
   for (int i = 0; i < number_of_threads; i += 1){
     pthread_create(&threads[i], NULL, task_1, &arg[i]);
@@ -446,13 +460,21 @@ static int preflow(graph_t* g, int number_of_threads)
 
   pthread_barrier_wait(&barrier);
   pthread_barrier_wait(&barrier);
-
-  while (g->excess != NULL) {
+  if(g->excess == NULL){
+    pr("hwhwhwhw\n");
+  }
+  while(1) {
     task_2(g,arg,number_of_threads);
+    if(g->excess == NULL){
+      break;
+    }
     giveNodes(g,arg,number_of_threads);
     pthread_barrier_wait(&barrier);
     pthread_barrier_wait(&barrier);
   }
+
+  g->working = 0;
+  pthread_barrier_wait(&barrier);
 
   for (int i = 0; i < number_of_threads; i += 1){
     pthread_join(threads[i], NULL);
@@ -506,7 +528,7 @@ int main(int argc, char* argv[])
 
 	fclose(in);
 
-  int number_of_threads = 8;
+  int number_of_threads = 12;
 	f = preflow(g, number_of_threads);
 
 	printf("f = %d\n", f);
