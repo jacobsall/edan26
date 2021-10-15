@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include <stdatomic.h>
 
 #define PRINT		0	/* enable/disable prints. */
 #define SIZE    100ULL
@@ -32,8 +33,8 @@ struct list_t {
 };
 
 struct node_t {
-	int		h;	/* height.			*/
-	int		e;	/* excess flow.			*/
+	atomic_int		h;	/* height.			*/
+	atomic_int		e;	/* excess flow.			*/
 	list_t*		edge;	/* adjacency list.		*/
 	node_t*		next;	/* with excess preflow.		*/
   //pthread_mutex_t mutex;  /* node mutex lock */
@@ -42,8 +43,8 @@ struct node_t {
 struct edge_t {
 	node_t*		u;	/* one of the two nodes.	*/
 	node_t*		v;	/* the other. 			*/
-	int		f;	/* flow > 0 if from u to v.	*/
-	int		c;	/* capacity.			*/
+	atomic_int		f;	/* flow > 0 if from u to v.	*/
+	atomic_int		c;	/* capacity.			*/
 };
 
 struct graph_t {
@@ -55,7 +56,7 @@ struct graph_t {
 	node_t*		t;	/* sink.			*/
 	node_t*		excess;	/* nodes with e > 0 except s,t.	*/
   //pthread_mutex_t mutex;  /* graph mutex lock */
-  int working;
+  atomic_int working;
 
 };
 
@@ -349,7 +350,7 @@ static void* task_1(void* arg){
   pthread_barrier_wait(args->barrier);
   pthread_barrier_wait(args->barrier);
 
-  if(g->working == 1){
+  if(atomic_load_explicit( &(g->working), memory_order_relaxed) == 1){
     goto work;
   }
 

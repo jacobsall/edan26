@@ -1,0 +1,9 @@
+1.	the atomic has a lock addl, lock has some near hardware mutex lock (cpu gets exlusive ownership of cache). More than just an instruction! nonatomic just has a movl
+
+2.	we have moved calculation for amount to push
+
+3.	(https://en.cppreference.com/w/c/atomic/memory_order) (https://www.internalpointers.com/post/understanding-memory-ordering) memory_order_seq_cst används av atomics. Sequentially consistent, threads observe all modifications in the same order.
+
+4.	It preserves atomicity, but is no longer thread safe. Should be cool?
+
+5.	Should be faster since less work is done, no consistency is being enforced
