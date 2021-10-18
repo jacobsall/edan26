@@ -13,7 +13,7 @@ struct Node {
 }
 
 struct Edge {
-        u:      usize,  
+        u:      usize,
         v:      usize,
         f:      i32,
         c:      i32,
@@ -28,13 +28,13 @@ impl Node {
 
 impl Edge {
         fn new(uu:usize, vv:usize,cc:i32) -> Edge {
-                Edge { u: uu, v: vv, f: 0, c: cc }      
+                Edge { u: uu, v: vv, f: 0, c: cc }
         }
 }
 
-fn enter_excess(excess: &mut VecDeque<usize>, node: &usize, n: &usize){
+fn enter_excess(excess: &mut VecDeque<usize>, node: &usize, t: &usize){
   //println!("1");
-  if (*node != 0) && (*node != n-1) {
+  if (*node != 0) && (*node != *t) {
   //println!("2");
     excess.push_back(*node);
   }
@@ -47,17 +47,18 @@ fn leave_excess(excess: &mut VecDeque<usize>) -> usize{
 
 fn other(u: &usize, edge: &Edge) -> usize{
   if edge.u == *u { return edge.v }
-  else { return *u }
+  else { return edge.u }
 }
 
-fn relabel(excess: &mut VecDeque<usize>, u: &mut Node, n: &usize){
+fn relabel(excess: &mut VecDeque<usize>, u: &mut Node, t: &usize){
     println!("Relabling {}", u.i);
     u.h += 1;
-    enter_excess(excess, &u.i, &n);
+    enter_excess(excess, &u.i, &t);
 }
 
-fn push(excess: &mut VecDeque<usize>, u: &mut Node, v: &mut Node, e: &mut Edge, n: &usize){
+fn push(excess: &mut VecDeque<usize>, u: &mut Node, v: &mut Node, e: &mut Edge, t: &usize){
   let d: i32;
+
   if u.i == e.u{
     d = cmp::min(u.e, e.c - e.f);
     e.f += d;
@@ -71,11 +72,11 @@ fn push(excess: &mut VecDeque<usize>, u: &mut Node, v: &mut Node, e: &mut Edge, 
   v.e += d;
 
   if u.e > 0 {
-    enter_excess(excess, &u.i, &n);
+    enter_excess(excess, &u.i, &t);
   }
 
   if v.e == d {
-    enter_excess(excess, &v.i, &n);
+    enter_excess(excess, &v.i, &t);
   }
 }
 
@@ -100,7 +101,7 @@ fn main() {
 
 	for i in 0..n {
 		let u:Node = Node::new(i);
-		node.push(Arc::new(Mutex::new(u))); 
+		node.push(Arc::new(Mutex::new(u)));
 		adj.push(LinkedList::new());
 	}
 
@@ -111,7 +112,7 @@ fn main() {
 		let e:Edge = Edge::new(u,v,c);
 		adj[u].push_back(i);
 		adj[v].push_back(i);
-		edge.push(Arc::new(Mutex::new(e))); 
+		edge.push(Arc::new(Mutex::new(e)));
 	}
 
 	if debug {
@@ -133,29 +134,28 @@ fn main() {
     node[s].lock().unwrap().e += edge[*e].lock().unwrap().c;
     println!("haj du {}", node[s].lock().unwrap().e);
 
-    push(&mut excess, &mut node[s].lock().unwrap(), &mut node[v].lock().unwrap(), &mut edge[*e].lock().unwrap(), &n); 
+    push(&mut excess, &mut node[s].lock().unwrap(), &mut node[v].lock().unwrap(), &mut edge[*e].lock().unwrap(), &t);
   }
 	// but nothing is done here yet...
 
-	while !excess.is_empty() {
-		let mut c = 0;
+  while !excess.is_empty() {
     let mut b = 1;
     let mut v = n;
-    let mut e_index = 0; 
-		let u = leave_excess(&mut excess);
+    let mut e_index = 0;
+	let u = leave_excess(&mut excess);
     //println!("ayy lmao");
-	  let iter = adj[u].iter();
+	let iter = adj[u].iter();
     for e in iter {
       e_index = *e;
       v = other(&u, &edge[*e].lock().unwrap());
-      if u != *e {
+      if u != edge[*e].lock().unwrap().u {
         b = -1;
       }
-      
-      let u_h = node[u].lock().unwrap().h;    
+
+      let u_h = node[u].lock().unwrap().h;
       let v_h = node[v].lock().unwrap().h;
       let e_f = edge[*e].lock().unwrap().f;
-      let e_c = edge[*e].lock().unwrap().c; 
+      let e_c = edge[*e].lock().unwrap().c;
       if ( u_h > v_h)  && (b*e_f<e_c) {
         break;
       }
@@ -164,12 +164,11 @@ fn main() {
       }
     }
     if v != n {
-      push(&mut excess, &mut node[u].lock().unwrap(), &mut node[v].lock().unwrap(), &mut edge[e_index].lock().unwrap(), &n); 
+      push(&mut excess, &mut node[u].lock().unwrap(), &mut node[v].lock().unwrap(), &mut edge[e_index].lock().unwrap(), &t);
     } else {
-      relabel(&mut excess, &mut node[u].lock().unwrap(), &n);
+      relabel(&mut excess, &mut node[u].lock().unwrap(), &t);
     }
-  
-	}
+  }
 
 	println!("f = {}", node[t].lock().unwrap().e);
 
