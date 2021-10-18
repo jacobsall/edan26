@@ -3,7 +3,7 @@
 use std::sync::{Mutex,Arc};
 use std::collections::LinkedList;
 use std::cmp;
-use std::thread;
+//use std::thread;
 use std::collections::VecDeque;
 
 struct Node {
@@ -82,7 +82,6 @@ fn push(excess: &mut VecDeque<usize>, u: &mut Node, v: &mut Node, e: &mut Edge, 
 
 
 fn main() {
-
 	let n: usize = read!();		/* n nodes.						*/
 	let m: usize = read!();		/* m edges.						*/
 	let _c: usize = read!();	/* underscore avoids warning about an unused variable.	*/
@@ -129,6 +128,7 @@ fn main() {
 
 	println!("initial pushes");
 	let iter = adj[s].iter();
+	node[s].lock().unwrap().h = n as i32;
   for e in iter {
     let v = other(&s, &edge[*e].lock().unwrap());
     node[s].lock().unwrap().e += edge[*e].lock().unwrap().c;
@@ -138,14 +138,18 @@ fn main() {
   }
 	// but nothing is done here yet...
 
-  while !excess.is_empty() {
-    let mut b = 1;
-    let mut v = n;
+	let mut b: i32;
+	let mut u: usize;
+    let mut v: usize;
     let mut e_index = 0;
-	let u = leave_excess(&mut excess);
+
+  while !excess.is_empty() {
+    v = n;
+	u = leave_excess(&mut excess);
     //println!("ayy lmao");
 	let iter = adj[u].iter();
     for e in iter {
+	  b = 1;
       e_index = *e;
       v = other(&u, &edge[*e].lock().unwrap());
       if u != edge[*e].lock().unwrap().u {
