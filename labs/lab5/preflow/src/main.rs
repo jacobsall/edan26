@@ -3,7 +3,7 @@
 use std::sync::{Mutex,Arc};
 use std::collections::LinkedList;
 use std::cmp;
-//use std::thread;
+use std::thread;
 use std::collections::VecDeque;
 
 struct Node {
