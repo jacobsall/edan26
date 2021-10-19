@@ -153,7 +153,7 @@ fn main() {
 			let mut b: i32;
 			let mut u: usize;
 		    let mut v: usize;
-			let mut e_index = 0;
+			let mut _e_index = 0;
 			let mut iter;
 
 			let node_thread = node_main.read().unwrap();
@@ -182,58 +182,63 @@ fn main() {
 
 				for e in iter {
 
-					println!("2");
-					edge = edge_thread[*e].lock().unwrap();
-					v = other(&u, &edge);
-					e_index = *e;
-					println!("3");
+				println!("2");
+				edge = edge_thread[*e].lock().unwrap();
+				v = other(&u, &edge);
 
-					if u != edge.u {
-						//v = edge.u;
-						b = -1;
-					} else {
-						b = 1;
-						//v = edge.v;
-					}
+				println!("3");
 
-					println!("4");
-					{
-					let mut u_node;
-					let mut v_node;
-
-					if u < v {
-						println!("u less than v: 5");
-					  u_node = node_thread[u].lock().unwrap();
-					  v_node = node_thread[v].lock().unwrap();
-					  println!("6");
-					  
-					} else {
-						println!("u IS NOT less than v: 5");
-					  v_node = node_thread[v].lock().unwrap();
-					  u_node = node_thread[u].lock().unwrap();
-					  println!("6");
-					  
-					}
-					
-					e_f = edge.f;
-					e_c = edge.c;
-
-					if (u_node.h > v_node.h)  && (b * e_f < e_c) {
-					  println!("pushing: 7");
-					break;
-					}
-					else  {
-					  println!("NOT pushing: 7");
-					  v = n;
-					}
-				}
-				
-				}
-				if v != n {
-				  println!("relabel: 8");
-				  push(&mut excess_main.lock().unwrap(), &mut node_thread[u].lock().unwrap(), &mut node_thread[v].lock().unwrap(), &mut edge[e_index].lock().unwrap(), &t);
+				if u != edge.u {
+					//v = edge.u;
+					b = -1;
 				} else {
-				  relabel(&mut excess_main.lock().unwrap(), &mut node_thread[u].lock().unwrap(), &t);
+					b = 1;
+					//v = edge.v;
+				}
+
+				println!("4");
+
+				if u < v {
+					println!("u less than v: 5");
+				  let mut u_node = node_thread[u].lock().unwrap();
+				  let mut v_node = node_thread[v].lock().unwrap();
+				  println!("6");
+				  e_f = edge.f;
+				  e_c = edge.c;
+
+				  if (u_node.h > v_node.h)  && (b * e_f < e_c) {
+					  println!("pushing: 7");
+					  push(&mut excess_main.lock().unwrap(), &mut u_node, &mut v_node, &mut edge, &t);
+				    break;
+				  }
+				  else  {
+					  println!("NOT pushing: 7");
+				    v = n;
+				  }
+				} else {
+					println!("u IS NOT less than v: 5");
+				  let mut v_node = node_thread[v].lock().unwrap();
+				  let mut u_node = node_thread[u].lock().unwrap();
+				  println!("6");
+				  e_f = edge.f;
+				  e_c = edge.c;
+
+				  if (u_node.h > v_node.h)  && (b * e_f < e_c) {
+					  println!("pushing: 7");
+					  push(&mut excess_main.lock().unwrap(), &mut u_node, &mut v_node, &mut edge, &t);
+					  break;
+				  }
+				  else  {
+					  println!("NOT pushing: 7");
+				    v = n;
+				  }
+				}
+
+				}
+				if v == n {
+					println!("relabel: 8");
+					let mut u_node = node_thread[u].lock().unwrap();
+				  relabel(&mut excess_main.lock().unwrap(), &mut u_node, &t);
 				}
 			}
 		});
