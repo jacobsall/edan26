@@ -1,0 +1,8 @@
+1.	to keep ownership, use &. that way you only borrow the variable, and can possibly modify the original value.
+	If you make normal function calls you move it, removing it from the original context. Clone can be used to give away a copy instead.
+   
+2.	 The Arc is a reference to something, and also keeps track of how many things that refer to it. They are atomic, so no data race can happen to the wrapped thing
+
+3.	jaomen vi fick inte ha snygg kod eftersom man tappar typ scope av variabler osv. speciellt när den låser upp ett lås så fort man trillar ur ett kodblock
+
+4.	The language is a big mess for people who have not worked with it before. And a lot of repeated code tbh

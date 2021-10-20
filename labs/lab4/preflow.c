@@ -228,54 +228,59 @@ static node_t* leave_excess(graph_t* g)
 static void push(graph_t* g, node_t* u, node_t* v, edge_t* e, int d)
 {
 
-	pr("push from %d to %d: ", id(g, u), id(g, v));
-	pr("f = %d, c = %d, so ", e->f, e->c);
+	//pr("push from %d to %d: ", id(g, u), id(g, v));
+	//pr("f = %d, c = %d, so ", e->f, e->c);
 
-	pr("pushing %d\n", d);
+	//pr("pushing %d\n", d);
 
-	u->e -= d;
-	v->e += d;
+	atomic_fetch_sub_explicit(&(u->e),d,memory_order_seq_cst);
+	atomic_fetch_add_explicit(&(v->e),d,memory_order_seq_cst);
 
 	assert(d >= 0);
-	assert(u->e >= 0);
-	assert(abs(e->f) <= e->c);
+	assert(atomic_load_explicit(&(u->e),memory_order_seq_cst) >= 0);
+	assert(abs(atomic_load_explicit(&(e->f),memory_order_seq_cst) ) <= atomic_load_explicit(&(e->c),memory_order_seq_cst) );
 
-	if (u->e > 0) {
+	// if (u->e > 0) {
+	//
+	// 	enter_excess(g, u);
+	// }
+	//
+	// if (v->e == d) {
+	//
+	// 	enter_excess(g, v);
+	// }
 
+	if (atomic_load_explicit(&(u->e),memory_order_seq_cst) > 0) {
 		enter_excess(g, u);
 	}
 
-	if (v->e == d) {
-
+	if (atomic_load_explicit(&(v->e),memory_order_seq_cst) == d) {
 		enter_excess(g, v);
 	}
 }
 
 static void relabel(graph_t* g, node_t* u)
 {
-  pr("\nwhat is u?");
-  if(u == NULL){
-    pr("\nu is ded\n");
-  }
-	u->h += 1;
-  pr("fefefe");
-	pr("relabel %d now h = %d\n", id(g, u), u->h);
+
+	atomic_fetch_add_explicit(&(u->h),1,memory_order_seq_cst);
+
+	//pr("relabel %d now h = %d\n", id(g, u), u->h);
 
 	enter_excess(g, u);
 }
 
 static node_t* other(node_t* u, edge_t* e)
 {
-	if (u == e->u)
-		return e->v;
+	if (u == atomic_load_explicit(&(e->u), memory_order_seq_cst))
+		return atomic_load_explicit(&(e->v), memory_order_seq_cst);
 	else
-		return e->u;
+		return atomic_load_explicit(&(e->u), memory_order_seq_cst);
 }
 
 static void* task_1(void* arg){
-  pr("hehehe");
+
   myargs *args = arg;
-  pr("BLELELE\n");
+
   graph_t* g = args->g;
 	node_t*		s;
 	node_t*		u;
@@ -304,15 +309,15 @@ static void* task_1(void* arg){
 	  		e = p->edge;
 	  		p = p->next;
 
-	  		if (u == e->u) {
-	  			v = e->v;
+	  		if (u == atomic_load_explicit(&(e->u), memory_order_seq_cst)) {
+	  			v = atomic_load_explicit(&(e->v), memory_order_seq_cst);
 	  			b = 1;
 	  		} else {
-	  			v = e->u;
+	  			v = atomic_load_explicit(&(e->u), memory_order_seq_cst);
 	  			b = -1;
 	  		}
 
-	  		if (u->h > v->h && b * e->f < e->c){
+	  		if (atomic_load_explicit(&(u->h), memory_order_seq_cst) > atomic_load_explicit(&(v->h), memory_order_seq_cst) && b * atomic_load_explicit(&(e->f), memory_order_seq_cst) < atomic_load_explicit(&(e->c), memory_order_seq_cst)){
 	  			break;
         }
 	  		else{
@@ -322,12 +327,12 @@ static void* task_1(void* arg){
 
 	  	if (v != NULL){
 	  		//push instruct
-        if (u == e->u) {
-      		d = MIN(u->e, e->c - e->f);
-      		e->f += d;
+        if (u == atomic_load_explicit(&(e->u), memory_order_seq_cst)) {
+      		d = MIN(atomic_load_explicit(&(u->e), memory_order_seq_cst), atomic_load_explicit(&(e->c), memory_order_seq_cst) - atomic_load_explicit(&(e->f), memory_order_seq_cst));
+      		atomic_fetch_add_explicit(&(e->f), d, memory_order_seq_cst);
       	} else {
-      		d = MIN(u->e, e->c + e->f);
-      		e->f -= d;
+      		d = MIN(atomic_load_explicit(&(u->e), memory_order_seq_cst), atomic_load_explicit(&(e->c), memory_order_seq_cst) + atomic_load_explicit(&(e->f), memory_order_seq_cst));
+      		atomic_fetch_sub_explicit(&(e->f), d, memory_order_seq_cst);
       	}
 
         current_instruction = &(args->instructions[args->count-1]);
@@ -336,6 +341,10 @@ static void* task_1(void* arg){
         current_instruction->edge = e;
         current_instruction->isPush = 1;
         current_instruction->flow = d;
+
+				//atomic_fetch_sub_explicit(&(u->e), d, memory_order_seq_cst);
+				//atomic_fetch_add_explicit(&(v->e), d, memory_order_seq_cst);
+				//push(g,u,v,e,d);
 
 	  	} else{
 	  		//relabel
@@ -350,7 +359,7 @@ static void* task_1(void* arg){
   pthread_barrier_wait(args->barrier);
   pthread_barrier_wait(args->barrier);
 
-  if(atomic_load_explicit( &(g->working), memory_order_relaxed) == 1){
+  if(atomic_load_explicit( &(g->working), memory_order_seq_cst) == 1){
     goto work;
   }
 
@@ -360,24 +369,30 @@ static void* task_1(void* arg){
 
 static void* task_2(graph_t* g, myargs* arg, int number_of_threads){
   instruct* curr_instruct;
-  pr("task2\n");
+
   for (int i = 0; i < number_of_threads; i++) {
-    pr("hubba");
+
     for (int j = 0; j < arg[i].nbrNodes; j++) {
       curr_instruct = &(arg[i].instructions[j]);
-      pr("bubba\n");
+
       if (curr_instruct->isPush == 1) {
-        pr("push?");
+
         push(g,curr_instruct->u,curr_instruct->v,curr_instruct->edge,curr_instruct->flow);
-        pr("push!");
+				// if (atomic_load_explicit(&(curr_instruct->u->e),memory_order_seq_cst) > 0) {
+				// 	enter_excess(g, curr_instruct->u);
+				// }
+				//
+				// if (atomic_load_explicit(&(curr_instruct->v->e),memory_order_seq_cst) == curr_instruct->flow) {
+				// 	enter_excess(g, curr_instruct->v);
+				// }
       }
       else {
-        pr("relabel?");
+
         relabel(g,curr_instruct->u);
-        pr("relabel!");
+
       }
     }
-    pr("\n");
+
   }
 }
 
@@ -385,20 +400,16 @@ static void giveNodes(graph_t* g, myargs* arg, int number_of_threads)
 {
   node_t* u;
   int i = 0;
-  pr("gibing\n");
-  for (int i = 0; i < number_of_threads; i++) {
-    pr("zero");
+
+  for (int i = 0; i < number_of_threads; i++){
     arg[i].nbrNodes = 0;
   }
-  pr("\ntime to duel\n");
+
   while ((u = leave_excess(g)) != NULL){
-    pr("node brr %d\t", arg[i].count);
     arg[i].nodes[arg[i].count] = u;
-    pr("brr again\t");
     arg[i].count += 1;
-    pr("brr again\t");
     arg[i].nbrNodes += 1;
-    pr("brr again\n");
+
     if(i < number_of_threads-1){
       i++;
     } else{
@@ -431,14 +442,10 @@ static int preflow(graph_t* g, int number_of_threads)
 		s->e += e->c;
 		push(g, s, other(s, e), e, e->c);
 	}
-  pr("hello \n");
-  if(g->excess == NULL){
-    pr("hwhwhwhw111111\n");
-  }
+
   // create barrier here and start it?
   pthread_barrier_t barrier;
   pthread_barrier_init(&barrier,NULL,number_of_threads+1);
-  pr("hello again\n");
 
   myargs arg[number_of_threads];
   for (int i = 0; i < number_of_threads; i++) {
@@ -447,13 +454,8 @@ static int preflow(graph_t* g, int number_of_threads)
     arg[i].count = 0;
     arg[i].nbrNodes = 0;
   }
-  pr("hello again2\n");
 
   giveNodes(g,arg, number_of_threads);
-  pr("hello again3\n");
-  if(g->excess == NULL){
-    pr("hwhwhwhw212222");
-  }
 
   for (int i = 0; i < number_of_threads; i += 1){
     pthread_create(&threads[i], NULL, task_1, &arg[i]);
@@ -461,9 +463,7 @@ static int preflow(graph_t* g, int number_of_threads)
 
   pthread_barrier_wait(&barrier);
   pthread_barrier_wait(&barrier);
-  if(g->excess == NULL){
-    pr("hwhwhwhw\n");
-  }
+
   while(1) {
     task_2(g,arg,number_of_threads);
     if(g->excess == NULL){
