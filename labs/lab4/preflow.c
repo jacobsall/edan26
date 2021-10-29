@@ -37,6 +37,8 @@ struct node_t {
 	atomic_int		e;	/* excess flow.			*/
 	list_t*		edge;	/* adjacency list.		*/
 	node_t*		next;	/* with excess preflow.		*/
+	atomic_int futureExcess;
+	atomic_int active;
   //pthread_mutex_t mutex;  /* node mutex lock */
 };
 
@@ -206,9 +208,10 @@ static graph_t* new_graph(FILE* in, int n, int m)
 static void enter_excess(graph_t* g, node_t* v)
 {
 
-	if (v != g->t && v != g->s) {
+	if (v->active != 1 && v != g->t && v != g->s) {
 		v->next = g->excess;
 		g->excess = v;
+		v->active = 1;
 	}
 
 }
@@ -220,6 +223,7 @@ static node_t* leave_excess(graph_t* g)
   v = g->excess;
 	if (v != NULL){
 		g->excess = v->next;
+		v->active = 0;
   }
 
 	return v;
@@ -233,12 +237,12 @@ static void push(graph_t* g, node_t* u, node_t* v, edge_t* e, int d)
 
 	//pr("pushing %d\n", d);
 
-	atomic_fetch_sub_explicit(&(u->e),d,memory_order_seq_cst);
-	atomic_fetch_add_explicit(&(v->e),d,memory_order_seq_cst);
+	atomic_fetch_sub_explicit(&(u->e),d,memory_order_relaxed);
+	atomic_fetch_add_explicit(&(v->e),d,memory_order_relaxed);
 
 	assert(d >= 0);
-	assert(atomic_load_explicit(&(u->e),memory_order_seq_cst) >= 0);
-	assert(abs(atomic_load_explicit(&(e->f),memory_order_seq_cst) ) <= atomic_load_explicit(&(e->c),memory_order_seq_cst) );
+	assert(atomic_load_explicit(&(u->e),memory_order_relaxed) >= 0);
+	assert(abs(atomic_load_explicit(&(e->f),memory_order_relaxed) ) <= atomic_load_explicit(&(e->c),memory_order_relaxed) );
 
 	// if (u->e > 0) {
 	//
@@ -250,11 +254,11 @@ static void push(graph_t* g, node_t* u, node_t* v, edge_t* e, int d)
 	// 	enter_excess(g, v);
 	// }
 
-	if (atomic_load_explicit(&(u->e),memory_order_seq_cst) > 0) {
+	if (atomic_load_explicit(&(u->e),memory_order_relaxed) > 0) {
 		enter_excess(g, u);
 	}
 
-	if (atomic_load_explicit(&(v->e),memory_order_seq_cst) == d) {
+	if (atomic_load_explicit(&(v->e),memory_order_relaxed) == d) {
 		enter_excess(g, v);
 	}
 }
@@ -262,7 +266,7 @@ static void push(graph_t* g, node_t* u, node_t* v, edge_t* e, int d)
 static void relabel(graph_t* g, node_t* u)
 {
 
-	atomic_fetch_add_explicit(&(u->h),1,memory_order_seq_cst);
+	atomic_fetch_add_explicit(&(u->h),1,memory_order_relaxed);
 
 	//pr("relabel %d now h = %d\n", id(g, u), u->h);
 
@@ -271,10 +275,10 @@ static void relabel(graph_t* g, node_t* u)
 
 static node_t* other(node_t* u, edge_t* e)
 {
-	if (u == atomic_load_explicit(&(e->u), memory_order_seq_cst))
-		return atomic_load_explicit(&(e->v), memory_order_seq_cst);
+	if (u == atomic_load_explicit(&(e->u), memory_order_relaxed))
+		return atomic_load_explicit(&(e->v), memory_order_relaxed);
 	else
-		return atomic_load_explicit(&(e->u), memory_order_seq_cst);
+		return atomic_load_explicit(&(e->u), memory_order_relaxed);
 }
 
 static void* task_1(void* arg){
@@ -309,15 +313,15 @@ static void* task_1(void* arg){
 	  		e = p->edge;
 	  		p = p->next;
 
-	  		if (u == atomic_load_explicit(&(e->u), memory_order_seq_cst)) {
-	  			v = atomic_load_explicit(&(e->v), memory_order_seq_cst);
+	  		if (u == e->u) {
+	  			v = e->v;
 	  			b = 1;
 	  		} else {
-	  			v = atomic_load_explicit(&(e->u), memory_order_seq_cst);
+	  			v = e->u;
 	  			b = -1;
 	  		}
 
-	  		if (atomic_load_explicit(&(u->h), memory_order_seq_cst) > atomic_load_explicit(&(v->h), memory_order_seq_cst) && b * atomic_load_explicit(&(e->f), memory_order_seq_cst) < atomic_load_explicit(&(e->c), memory_order_seq_cst)){
+	  		if (atomic_load_explicit(&(u->h), memory_order_relaxed) > atomic_load_explicit(&(v->h), memory_order_relaxed) && b * atomic_load_explicit(&(e->f), memory_order_relaxed) < atomic_load_explicit(&(e->c), memory_order_relaxed)){
 	  			break;
         }
 	  		else{
@@ -327,12 +331,12 @@ static void* task_1(void* arg){
 
 	  	if (v != NULL){
 	  		//push instruct
-        if (u == atomic_load_explicit(&(e->u), memory_order_seq_cst)) {
-      		d = MIN(atomic_load_explicit(&(u->e), memory_order_seq_cst), atomic_load_explicit(&(e->c), memory_order_seq_cst) - atomic_load_explicit(&(e->f), memory_order_seq_cst));
-      		atomic_fetch_add_explicit(&(e->f), d, memory_order_seq_cst);
+        if (u == e->u) {
+      		d = MIN(atomic_load_explicit(&(u->e), memory_order_relaxed), atomic_load_explicit(&(e->c), memory_order_relaxed) - atomic_load_explicit(&(e->f), memory_order_relaxed));
+      		atomic_fetch_add_explicit(&(e->f), d, memory_order_relaxed);
       	} else {
-      		d = MIN(atomic_load_explicit(&(u->e), memory_order_seq_cst), atomic_load_explicit(&(e->c), memory_order_seq_cst) + atomic_load_explicit(&(e->f), memory_order_seq_cst));
-      		atomic_fetch_sub_explicit(&(e->f), d, memory_order_seq_cst);
+      		d = MIN(atomic_load_explicit(&(u->e), memory_order_relaxed), atomic_load_explicit(&(e->c), memory_order_relaxed) + atomic_load_explicit(&(e->f), memory_order_relaxed));
+      		atomic_fetch_sub_explicit(&(e->f), d, memory_order_relaxed);
       	}
 
         current_instruction = &(args->instructions[args->count-1]);
@@ -342,8 +346,8 @@ static void* task_1(void* arg){
         current_instruction->isPush = 1;
         current_instruction->flow = d;
 
-				//atomic_fetch_sub_explicit(&(u->e), d, memory_order_seq_cst);
-				//atomic_fetch_add_explicit(&(v->e), d, memory_order_seq_cst);
+				atomic_fetch_sub_explicit(&(u->futureExcess), d, memory_order_relaxed);
+				atomic_fetch_add_explicit(&(v->futureExcess), d, memory_order_relaxed);
 				//push(g,u,v,e,d);
 
 	  	} else{
@@ -359,7 +363,7 @@ static void* task_1(void* arg){
   pthread_barrier_wait(args->barrier);
   pthread_barrier_wait(args->barrier);
 
-  if(atomic_load_explicit( &(g->working), memory_order_seq_cst) == 1){
+  if(atomic_load_explicit( &(g->working), memory_order_relaxed) == 1){
     goto work;
   }
 
@@ -377,14 +381,25 @@ static void* task_2(graph_t* g, myargs* arg, int number_of_threads){
 
       if (curr_instruct->isPush == 1) {
 
-        push(g,curr_instruct->u,curr_instruct->v,curr_instruct->edge,curr_instruct->flow);
-				// if (atomic_load_explicit(&(curr_instruct->u->e),memory_order_seq_cst) > 0) {
+        //push(g,curr_instruct->u,curr_instruct->v,curr_instruct->edge,curr_instruct->flow);
+				// if (atomic_load_explicit(&(curr_instruct->u->e),memory_order_relaxed) > 0) {
 				// 	enter_excess(g, curr_instruct->u);
 				// }
 				//
-				// if (atomic_load_explicit(&(curr_instruct->v->e),memory_order_seq_cst) == curr_instruct->flow) {
+				// if (atomic_load_explicit(&(curr_instruct->v->e),memory_order_relaxed) == curr_instruct->flow) {
 				// 	enter_excess(g, curr_instruct->v);
 				// }
+
+				if(curr_instruct->u->futureExcess != 0){
+					curr_instruct->u->e += curr_instruct->u->futureExcess;
+					atomic_store_explicit(&(curr_instruct->u->futureExcess),0,memory_order_relaxed);
+					enter_excess(g,curr_instruct->u);
+				}
+				if(curr_instruct->v->futureExcess != 0){
+					curr_instruct->v->e += curr_instruct->v->futureExcess;
+					atomic_store_explicit(&(curr_instruct->v->futureExcess),0,memory_order_relaxed);
+					enter_excess(g,curr_instruct->v);
+				}
       }
       else {
 
