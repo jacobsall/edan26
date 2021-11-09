@@ -20,13 +20,13 @@
 ; read the m edges with the normal format "u v c"
 (defn read-graph [i m nodes edges]
 	(if (< i m)
-		(do	(let [line 	(read-line)]			
+		(do	(let [line 	(read-line)]
 			(let [words	(str/split line #" ") ]
 
 			(let [u		(Integer/parseInt (first words))]
 			(let [v 	(Integer/parseInt (first (rest words)))]
 			(let [c 	(Integer/parseInt (first (rest (rest words))))]
-			
+
 			(ref-set (edges i) (update @(edges i) :u + u))
 			(ref-set (edges i) (update @(edges i) :v + v))
 			(ref-set (edges i) (update @(edges i) :c + c))
@@ -47,7 +47,7 @@
 	(ref-set (edges i) (update @(edges i) :f + d)))
 
 (defn decrease-flow [edges i d]
-	(ref-set (edges i) (update @(edges i) :f - d)))
+	 (ref-set (edges i) (update @(edges i) :f - d)))
 
 (defn move-excess [nodes u v d]
 	(ref-set (nodes u) (update @(nodes u) :e - d))
@@ -79,15 +79,45 @@
 			(println "f = " f)
 			(println "c = " c)
 			(println "v = " v)
-			(println "vh = " vh)))))))))))
+			(println "vh = " vh)))
+
+
+	(if (u-is-edge-u @(edges i) u)
+		(do
+			(let [d (min e (- c f))]
+			(increase-flow edges i d)
+			(move-excess nodes u v d)
+			))
+		(do
+			(let [d (min e (+ c f))]
+			(decrease-flow edges i d)
+			(move-excess nodes u v d)
+			))
+	)
+	)))))))
+
+
+	;(assert (>= (node-excess @(nodes u)) 0))
+	;(assert (<= (abs (edge-flow @(edges edge-index))) (edge-capacity @(edges edge-index))))
+
+	(let [v (other @(edges edge-index) u)]
+		(if (has-excess u nodes)
+			(check-insert excess-nodes u s t)
+		)
+		(if (has-excess v nodes)
+			(check-insert excess-nodes v s t)
+		)
+	)
+) ; end of push
 
 
 ; go through adjacency-list of source and push
 (defn initial-push [adj s t nodes edges excess-nodes]
 	(let [change (ref 0)] ; unused for initial pushes since we know they will be performed
 	(if (not (empty? adj))
-		(do 
+		(do
 			; give source this capacity as excess so the push will be accepted
+			(ref-set (nodes s) (update @(nodes s) :e + (edge-capacity @(edges (first adj)))))
 			(push (first adj) s nodes edges excess-nodes change s t)
 			(initial-push (rest adj) s t nodes edges excess-nodes)))))
 
@@ -95,7 +125,7 @@
 	(initial-push (node-adj @(nodes s)) s t nodes edges excess-nodes))
 
 (defn remove-any [excess-nodes]
-	(dosync 
+	(dosync
 		(let [ u (ref -1)]
 			(do
 				(if (not (empty? @excess-nodes))
@@ -103,6 +133,60 @@
 						(ref-set u (first @excess-nodes))
 						(ref-set excess-nodes (rest @excess-nodes))))
 			@u))))
+
+(defn relabel [nodes u s t excess-nodes]
+	(when debug	(println "entering relabel"))
+	(ref-set (nodes u) (update @(nodes u) :h + 1))
+	(check-insert excess-nodes u s t)
+)
+
+
+(defn b-value [e u]
+	(if (u-is-edge-u e u)
+		1
+		-1
+	)
+)
+
+(defn adj-work [adj u s t excess-nodes edges nodes]
+		(when debug	(println "entering adj-work"))
+	(if (not (empty? adj))
+			(do
+				(when debug	(println "non empty adj"))
+				(let
+					[
+						e (first adj)
+					 	v (other @(edges e) u)
+						b (b-value @(edges e) u)
+						uh (node-height @(nodes u))
+						vh (node-height @(nodes v))
+						ec (edge-capacity @(edges e))
+						f (edge-flow @(edges e))
+						bf (* b f)
+					]
+					(if (and (> uh vh) (< bf ec))
+						(let [change (ref 0)]
+							(dosync (push e u nodes edges excess-nodes change s t))
+						)
+						(recur (rest adj) u s t excess-nodes edges nodes)
+					)
+				)
+			)
+			(dosync (relabel nodes u s t excess-nodes))
+	)
+)
+
+(defn work [nodes edges s t excess-nodes]
+	(when debug	(println "entering work"))
+		(let [u (remove-any excess-nodes)]
+			(if (not (= u -1))
+				(do
+					(adj-work (node-adj @(nodes u)) u s t excess-nodes edges nodes)
+					(recur nodes edges s t excess-nodes)
+				)
+			)
+		)
+)
 
 ; read first line with n m c p from stdin
 
@@ -122,11 +206,20 @@
 
 (def edges (vec (for [i (range m)] (ref (->edge 0 0 0 0)))))
 
+(def num-threads 8)
+(defn make-transactions [] (work nodes edges s t excess-nodes))
+
 (dosync (read-graph 0 m nodes edges))
+
 
 (defn preflow []
 
 	(dosync (initial-pushes nodes edges s t excess-nodes))
+	;(dosync (work nodes edges s t excess-nodes))
+
+	(let [threads (repeatedly num-threads #(Thread. make-transactions))]
+		(run! #(.start %) threads)
+		(run! #(.join %) threads))
 
 	(println "f =" (node-excess @(nodes t))))
 
